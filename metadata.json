@@ -1,0 +1,7 @@
+{
+  "name": "Gourmetto - Gestão de RH",
+  "description": "Sistema de gestão de RH focado em controle operacional para Gourmetto.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
