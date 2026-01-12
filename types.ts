@@ -1,6 +1,14 @@
 
+export interface Relative {
+  name: string;
+  birthDate: string;
+  parentage: string;
+}
+
 export interface Employee {
   id: string;
+  codigo: string;
+  nrRecibo: string;
   name: string;
   fatherName: string;
   motherName: string;
@@ -17,35 +25,65 @@ export interface Employee {
   state: string;
   cpf: string;
   rg: string;
+  rgOrgao: string;
+  rgEstado: string;
+  rgEmissao: string;
   ctps: string;
+  ctpsSerie: string;
+  ctpsEstado: string;
+  ctpsExpedicao: string;
   pis: string;
-  phone: string; // Novo
-  emergencyPhone: string; // Novo
+  pisDataCadastro: string;
   education: string;
-  cnh: {
-    number: string;
-    category: string;
-    validity: string;
-  };
+  cnhNum: string;
+  cnhCat: string;
+  cnhValidade: string;
+  reservista: string;
+  reservistaCategoria: string;
   voterId: string;
+  voterZone: string;
+  voterSection: string;
+  sindicato: string;
+  consProfis: string;
+  registroProfis: string;
+  dataRegistroProfis: string;
+  
+  // Estrangeiro
+  f_dataChegada?: string;
+  f_tipoVisto?: string;
+  f_rne?: string;
+  f_rneValidade?: string;
+  f_portariaNum?: string;
+  f_portariaData?: string;
+
   bankInfo: {
     bank: string;
     account: string;
     digit: string;
     agency: string;
   };
-  pixKey: string; // Novo
+  pixKey: string;
+  
+  // Contrato
   admissionDate: string;
+  fgtsOptant: boolean;
+  fgtsDataOpcao: string;
+  fgtsConta: string;
   role: string;
   cbo: string;
+  organograma: string;
   salary: number;
+  modoPgto: string;
+  periodoPgto: string;
   scale: string;
+  dismissalDate?: string;
+  
+  // Ficha Familiar
+  relatives: Relative[];
+  
   status: 'Ativo' | 'Afastado' | 'Desligado';
-  paymentMode: string;
-  paymentPeriod: string;
-  fgtsOptant: boolean;
   performanceRating?: number;
-  performanceNotes?: string;
+  notes?: string;
 }
 
 export interface AppUser {
@@ -63,8 +101,6 @@ export interface OperationalEvent {
   type: EventType;
   date: string;
   description: string;
-  justification?: string;
-  severity?: 'Leve' | 'Média' | 'Grave';
 }
 
 export interface Document {
