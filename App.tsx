@@ -244,7 +244,9 @@ export default function App() {
 function Toast({ notification, onClose }: { notification: Notification, onClose: () => void }) {
   const { type, message, isCacheError } = notification;
   const [copied, setCopied] = useState(false);
-  const sqlFix = "ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS codigo TEXT;\nNOTIFY pgrst, 'reload schema';";
+  
+  // Expanded SQL Fix to cover fgtsOptant and all other likely missing columns
+  const sqlFix = `-- SCRIPT DE REPARO COMPLETO\nALTER TABLE public.employees ADD COLUMN IF NOT EXISTS codigo TEXT;\nALTER TABLE public.employees ADD COLUMN IF NOT EXISTS "nrRecibo" TEXT;\nALTER TABLE public.employees ADD COLUMN IF NOT EXISTS "admissionDate" DATE;\nALTER TABLE public.employees ADD COLUMN IF NOT EXISTS "fgtsOptant" BOOLEAN DEFAULT TRUE;\nALTER TABLE public.employees ADD COLUMN IF NOT EXISTS salary NUMERIC DEFAULT 0;\nALTER TABLE public.employees ADD COLUMN IF NOT EXISTS "bankInfo" JSONB DEFAULT '{}'::jsonb;\nALTER TABLE public.employees ADD COLUMN IF NOT EXISTS relatives JSONB DEFAULT '[]'::jsonb;\nNOTIFY pgrst, 'reload schema';`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(sqlFix);
@@ -262,10 +264,12 @@ function Toast({ notification, onClose }: { notification: Notification, onClose:
              {isCacheError && (
                <div className="mt-4 p-3 bg-red-900/10 rounded-sm space-y-3">
                  <p className="text-[9px] font-bold uppercase tracking-widest text-red-700">Correção necessária no Supabase:</p>
-                 <code className="block text-[10px] bg-white/50 p-2 border border-red-200 text-red-900 font-mono whitespace-pre-wrap">{sqlFix}</code>
-                 <button onClick={handleCopy} className="w-full bg-red-600 text-white py-2 rounded-sm font-bold text-[9px] uppercase flex items-center justify-center gap-2 hover:bg-red-700 transition-colors">
+                 <code className="block text-[8px] bg-white/50 p-2 border border-red-200 text-red-900 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+                   {sqlFix}
+                 </code>
+                 <button onClick={handleCopy} className="w-full bg-red-600 text-white py-2 rounded-sm font-bold text-[9px] uppercase flex items-center justify-center gap-2 hover:bg-red-700 transition-colors shadow-lg">
                    {copied ? <Check size={14}/> : <Copy size={14}/>}
-                   {copied ? "Copiado!" : "Copiar Script de Reparo"}
+                   {copied ? "Copiado!" : "Copiar Script Completo"}
                  </button>
                </div>
              )}
