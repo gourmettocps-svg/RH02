@@ -20,37 +20,40 @@ export const checkDbConnection = async (): Promise<boolean> => {
 
 // Auth Helpers
 export const loginUser = async (email: string, password: string): Promise<AppUser | null> => {
-  const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .eq('email', email)
-    .eq('password', password)
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .eq('password', password)
+      .single();
 
-  if (error || !data) return null;
-  return data;
+    if (error || !data) return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
 };
 
-// Função de limpeza agressiva para evitar erros de colunas não mapeadas no cache
+// Função de limpeza de payload para o Supabase
+// Remove apenas undefined e null para evitar erros, mas mantém strings vazias e 0.
 const cleanPayload = (obj: any) => {
   const newObj: any = {};
   
   Object.keys(obj).forEach(key => {
     const value = obj[key];
     
-    // Se o valor for vazio/nulo/undefined, não enviamos a chave
-    if (value === undefined || value === null || value === '') return;
+    // Ignora apenas nulos e indefinidos
+    if (value === undefined || value === null) return;
     
-    // Tratamento para objetos aninhados (bankInfo)
-    if (key === 'bankInfo') {
-      const hasContent = Object.values(value).some(v => v !== '');
-      if (hasContent) newObj[key] = value;
+    // Tratamento especial para objetos aninhados e arrays para garantir que sejam válidos
+    if (key === 'bankInfo' && typeof value === 'object') {
+      newObj[key] = value;
       return;
     }
     
-    // Tratamento para arrays (relatives)
-    if (key === 'relatives') {
-      if (Array.isArray(value) && value.length > 0) newObj[key] = value;
+    if (key === 'relatives' && Array.isArray(value)) {
+      newObj[key] = value;
       return;
     }
 
@@ -105,6 +108,7 @@ export const deleteEmployeeById = async (id: string) => {
 
 export const fetchEvents = async (): Promise<OperationalEvent[]> => {
   const { data, error } = await supabase.from('events').select('*').order('date', { ascending: false });
+  if (error) return [];
   return data || [];
 };
 
