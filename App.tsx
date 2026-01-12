@@ -28,7 +28,9 @@ import {
   Heart,
   Database,
   Wifi,
-  WifiOff
+  WifiOff,
+  Copy,
+  Check
 } from 'lucide-react';
 import { Employee, OperationalEvent, View, AppUser, Relative } from './types';
 import { 
@@ -39,7 +41,8 @@ import {
   fetchEvents, 
   createEvent, 
   loginUser,
-  checkDbConnection
+  checkDbConnection,
+  supabase
 } from './store';
 
 const formatBRL = (val: any) => {
@@ -53,6 +56,7 @@ const safeStr = (val: any) => (val === null || val === undefined) ? '' : String(
 interface Notification {
   type: 'success' | 'error';
   message: string;
+  isCacheError?: boolean;
 }
 
 export default function App() {
@@ -78,22 +82,20 @@ export default function App() {
     });
   }, []);
 
-  const showNotification = (type: 'success' | 'error', message: string) => {
-    setNotification({ type, message });
-    setTimeout(() => setNotification(null), 3500);
+  const showNotification = (type: 'success' | 'error', message: string, isCacheError = false) => {
+    setNotification({ type, message, isCacheError });
+    if (!isCacheError) setTimeout(() => setNotification(null), 4000);
   };
 
   async function loadAllData() {
     setIsLoading(true);
     try {
-      const [empData, eventData] = await Promise.all([
-        fetchEmployees(),
-        fetchEvents()
-      ]);
+      const [empData, eventData] = await Promise.all([fetchEmployees(), fetchEvents()]);
       setEmployees(empData);
       setEvents(eventData);
     } catch (err: any) {
-      showNotification('error', "Erro de sincronização. Execute o SQL de reparo.");
+      const isCache = err.message?.includes('column') || err.message?.includes('schema');
+      showNotification('error', "Erro de sincronização: " + err.message, isCache);
       setDbStatus('offline');
     } finally {
       setIsLoading(false);
@@ -111,7 +113,7 @@ export default function App() {
       showNotification('success', `Bem-vindo, ${user.name}`);
       loadAllData();
     } else {
-      showNotification('error', "Credenciais inválidas ou erro de banco.");
+      showNotification('error', "Credenciais inválidas.");
     }
     setIsLoading(false);
   };
@@ -140,7 +142,7 @@ export default function App() {
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6 text-slate-800">
-        {notification && <Toast type={notification.type} message={notification.message} />}
+        {notification && <Toast notification={notification} onClose={() => setNotification(null)} />}
         <div className="w-full max-w-md bg-white rounded-sm shadow-2xl border border-slate-200 overflow-hidden">
           <div className="bg-slate-900 p-8 text-center">
             <div className="w-10 h-10 bg-blue-600 rounded-sm flex items-center justify-center mx-auto mb-4 shadow-lg text-white font-bold text-lg">G</div>
@@ -154,12 +156,6 @@ export default function App() {
                 {isLoading ? <Loader2 className="animate-spin" size={16} /> : 'Acessar Painel'}
               </button>
             </form>
-            <div className="mt-6 pt-6 border-t border-slate-100 flex items-center justify-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${dbStatus === 'online' ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`}></span>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                {dbStatus === 'online' ? 'Banco Conectado' : 'Erro no Cache do Esquema'}
-              </span>
-            </div>
           </div>
         </div>
       </div>
@@ -168,7 +164,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50 text-slate-900 font-sans">
-      {notification && <Toast type={notification.type} message={notification.message} />}
+      {notification && <Toast notification={notification} onClose={() => setNotification(null)} />}
       <aside className="hidden lg:flex flex-col w-64 bg-slate-900 border-r border-slate-800 p-6 sticky top-0 h-screen z-40 text-slate-300">
         <div className="flex items-center gap-3 mb-10 px-2">
           <div className="w-7 h-7 bg-blue-600 rounded-sm flex items-center justify-center font-bold text-white">G</div>
@@ -179,11 +175,10 @@ export default function App() {
           <SidebarLink active={currentView === 'employees' || currentView === 'employee-detail'} onClick={() => navigateTo('employees')} icon={<Users size={18} />} label="Equipe" />
           <SidebarLink active={currentView === 'new-employee'} onClick={() => navigateTo('new-employee')} icon={<UserPlus size={18} />} label="Nova Ficha" />
         </nav>
-        
         <div className="mt-auto space-y-4">
           <div className={`px-4 py-2 rounded-sm border ${dbStatus === 'online' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'} flex items-center gap-3`}>
             {dbStatus === 'online' ? <Wifi size={14}/> : <WifiOff size={14}/>}
-            <span className="text-[9px] font-bold uppercase tracking-widest">{dbStatus === 'online' ? 'DB Sincronizado' : 'Erro de Esquema'}</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest">{dbStatus === 'online' ? 'DB Conectado' : 'Erro de Cache'}</span>
           </div>
           <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-sm font-bold text-[10px] uppercase text-slate-500 hover:text-white transition-all"><LogOut size={16}/><span>Sair</span></button>
         </div>
@@ -195,7 +190,7 @@ export default function App() {
             <div className="fixed inset-0 bg-slate-50/80 z-[100] flex items-center justify-center">
               <div className="text-center">
                 <Loader2 className="animate-spin text-blue-600 mb-4 mx-auto" size={32} />
-                <p className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Acessando Banco...</p>
+                <p className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Sincronizando...</p>
               </div>
             </div>
           )}
@@ -208,10 +203,8 @@ export default function App() {
               navigateTo('employees'); 
               showNotification('success', "Funcionário registrado.");
             }).catch((err) => {
-              const msg = err.message?.includes('schema cache') 
-                ? "Erro de Cache: Execute 'NOTIFY pgrst, reload schema' no SQL Editor do Supabase." 
-                : "Erro: " + err.message;
-              showNotification('error', msg);
+              const isCache = err.message?.includes('column') || err.message?.includes('schema');
+              showNotification('error', err.message, isCache);
               console.error(err);
             }).finally(() => setIsLoading(false));
           }} />}
@@ -248,17 +241,45 @@ export default function App() {
   );
 }
 
-function Toast({ type, message }: { type: 'success' | 'error', message: string }) {
+function Toast({ notification, onClose }: { notification: Notification, onClose: () => void }) {
+  const { type, message, isCacheError } = notification;
+  const [copied, setCopied] = useState(false);
+  const sqlFix = "ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS codigo TEXT;\nNOTIFY pgrst, 'reload schema';";
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(sqlFix);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] animate-in fade-in slide-in-from-top-4 max-w-md w-full px-4">
-      <div className={`px-4 py-3 rounded-sm shadow-xl flex items-start gap-3 border ${type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
-        {type === 'success' ? <CheckCircle2 size={16} className="mt-0.5"/> : <AlertTriangle size={16} className="mt-0.5"/>}
-        <span className="text-[10px] font-bold uppercase tracking-wider leading-relaxed">{safeStr(message)}</span>
+      <div className={`p-4 rounded-sm shadow-2xl border ${type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
+        <div className="flex items-start gap-3">
+          {type === 'success' ? <CheckCircle2 size={18} className="mt-0.5 shrink-0"/> : <AlertTriangle size={18} className="mt-0.5 shrink-0"/>}
+          <div className="flex-1">
+             <p className="text-[10px] font-bold uppercase tracking-wider leading-relaxed">{safeStr(message)}</p>
+             {isCacheError && (
+               <div className="mt-4 p-3 bg-red-900/10 rounded-sm space-y-3">
+                 <p className="text-[9px] font-bold uppercase tracking-widest text-red-700">Correção necessária no Supabase:</p>
+                 <code className="block text-[10px] bg-white/50 p-2 border border-red-200 text-red-900 font-mono whitespace-pre-wrap">{sqlFix}</code>
+                 <button onClick={handleCopy} className="w-full bg-red-600 text-white py-2 rounded-sm font-bold text-[9px] uppercase flex items-center justify-center gap-2 hover:bg-red-700 transition-colors">
+                   {copied ? <Check size={14}/> : <Copy size={14}/>}
+                   {copied ? "Copiado!" : "Copiar Script de Reparo"}
+                 </button>
+               </div>
+             )}
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-black/5 rounded-full"><Trash2 size={14}/></button>
+        </div>
       </div>
     </div>
   );
 }
 
+function SidebarLink({ active, onClick, icon, label }: any) {
+  return <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-sm font-bold text-[10px] uppercase tracking-widest transition-all ${active ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>{icon}<span>{label}</span></button>;
+}
 function Input({ label, icon, ...props }: any) {
   return (
     <div className="space-y-1">
@@ -270,7 +291,6 @@ function Input({ label, icon, ...props }: any) {
     </div>
   );
 }
-
 function Select({ label, value, options, onChange }: any) {
   return (
     <div className="space-y-1">
@@ -281,7 +301,6 @@ function Select({ label, value, options, onChange }: any) {
     </div>
   );
 }
-
 function DashboardView({ employees, events, onNavigate }: any) {
   const activeCount = employees.filter((e: any) => e.status === 'Ativo').length;
   return (
@@ -299,7 +318,9 @@ function DashboardView({ employees, events, onNavigate }: any) {
     </div>
   );
 }
-
+function StatCard({ label, value, icon }: any) {
+  return <div className="p-4 bg-white border border-slate-200 rounded-sm shadow-sm hover:shadow-md transition-shadow"><div className="flex items-center justify-between mb-1"><span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{label}</span>{icon}</div><p className="text-lg font-bold">{safeStr(value)}</p></div>;
+}
 function EmployeeListView({ employees, searchTerm, setSearchTerm, statusFilter, setStatusFilter, onNavigate }: any) {
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -344,7 +365,10 @@ function EmployeeListView({ employees, searchTerm, setSearchTerm, statusFilter, 
     </div>
   );
 }
-
+function StatusBadge({ status }: any) {
+  const styles: any = { Ativo: 'text-emerald-600', Afastado: 'text-orange-600', Desligado: 'text-red-600' };
+  return <span className={`font-black uppercase tracking-widest ${styles[status]}`}>• {safeStr(status)}</span>;
+}
 function NewEmployeeView({ onSubmit, onCancel }: any) {
   const [formData, setFormData] = useState<any>({
     status: 'Ativo',
@@ -360,32 +384,14 @@ function NewEmployeeView({ onSubmit, onCancel }: any) {
     codigo: '',
     nrRecibo: ''
   });
-
   const [newRelative, setNewRelative] = useState<Relative>({ name: '', birthDate: '', parentage: '' });
-
-  const addRelative = () => {
-    if (newRelative.name) {
-      setFormData({ ...formData, relatives: [...formData.relatives, newRelative] });
-      setNewRelative({ name: '', birthDate: '', parentage: '' });
-    }
-  };
-
-  const updateBank = (field: string, val: string) => {
-    setFormData({
-      ...formData,
-      bankInfo: { ...formData.bankInfo, [field]: val }
-    });
-  };
-
+  const addRelative = () => { if (newRelative.name) { setFormData({ ...formData, relatives: [...formData.relatives, newRelative] }); setNewRelative({ name: '', birthDate: '', parentage: '' }); } };
+  const updateBank = (field: string, val: string) => { setFormData({ ...formData, bankInfo: { ...formData.bankInfo, [field]: val } }); };
   return (
     <div className="max-w-6xl mx-auto pb-20 animate-in slide-in-from-bottom-2">
-      <header className="flex items-center gap-4 mb-8">
-        <button onClick={onCancel} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors"><ArrowLeft size={18}/></button>
-        <h2 className="text-xl font-bold uppercase">Registro de Novo Colaborador</h2>
-      </header>
+      <header className="flex items-center gap-4 mb-8"><button onClick={onCancel} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors"><ArrowLeft size={18}/></button><h2 className="text-xl font-bold uppercase">Registro de Novo Colaborador</h2></header>
       <form onSubmit={(e) => { e.preventDefault(); onSubmit({...formData}); }} className="space-y-6">
         <div className="bg-white border border-slate-200 rounded-sm p-8 shadow-sm space-y-12 text-slate-800">
-          
           <section>
             <h3 className="text-[10px] font-bold text-blue-600 uppercase mb-6 border-b pb-2 flex items-center gap-2"><UserIcon size={14}/> Dados Pessoais</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -402,7 +408,6 @@ function NewEmployeeView({ onSubmit, onCancel }: any) {
               <Input label="Nacionalidade" value={formData.nationality || 'Brasileiro'} onChange={(e:any) => setFormData({...formData, nationality: e.target.value})} />
             </div>
           </section>
-
           <section>
             <h3 className="text-[10px] font-bold text-blue-600 uppercase mb-6 border-b pb-2 flex items-center gap-2"><Globe size={14}/> Localização e Documentos</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -415,7 +420,6 @@ function NewEmployeeView({ onSubmit, onCancel }: any) {
               <Input label="PIS" value={formData.pis || ''} onChange={(e:any) => setFormData({...formData, pis: e.target.value})} />
             </div>
           </section>
-
           <section>
             <h3 className="text-[10px] font-bold text-blue-600 uppercase mb-6 border-b pb-2 flex items-center gap-2"><CreditCard size={14}/> Dados Bancários e Pagamento</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -428,7 +432,6 @@ function NewEmployeeView({ onSubmit, onCancel }: any) {
               <Select label="Período" value={formData.periodoPgto} options={['Mensal', 'Quinzenal', 'Semanal', 'Diário']} onChange={(v:any) => setFormData({...formData, periodoPgto: v})} />
             </div>
           </section>
-
           <section>
             <h3 className="text-[10px] font-bold text-blue-600 uppercase mb-6 border-b pb-2 flex items-center gap-2"><Briefcase size={14}/> Contrato</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -439,7 +442,6 @@ function NewEmployeeView({ onSubmit, onCancel }: any) {
               <Input label="Escala" value={formData.scale || ''} placeholder="09:00 as 17:20" onChange={(e:any) => setFormData({...formData, scale: e.target.value})} />
             </div>
           </section>
-
           <section>
             <h3 className="text-[10px] font-bold text-blue-600 uppercase mb-6 border-b pb-2 flex items-center gap-2"><Heart size={14}/> Ficha Familiar</h3>
             <div className="space-y-4">
@@ -455,10 +457,7 @@ function NewEmployeeView({ onSubmit, onCancel }: any) {
                     {formData.relatives.map((rel: any, idx: number) => (
                       <li key={idx} className="py-2 text-[11px] font-bold flex justify-between group">
                         <span>{rel.name} ({rel.parentage})</span>
-                        <div className="flex items-center gap-3">
-                           <span className="text-slate-400">{rel.birthDate}</span>
-                           <button type="button" onClick={() => setFormData({...formData, relatives: formData.relatives.filter((_:any, i:number) => i !== idx)})} className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={12}/></button>
-                        </div>
+                        <div className="flex items-center gap-3"><span className="text-slate-400">{rel.birthDate}</span><button type="button" onClick={() => setFormData({...formData, relatives: formData.relatives.filter((_:any, i:number) => i !== idx)})} className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={12}/></button></div>
                       </li>
                     ))}
                   </ul>
@@ -466,24 +465,20 @@ function NewEmployeeView({ onSubmit, onCancel }: any) {
               </div>
             </div>
           </section>
-
         </div>
         <div className="flex gap-4 pt-10"><button type="button" onClick={onCancel} className="flex-1 bg-white border border-slate-200 py-3 rounded-sm font-bold uppercase text-[10px] hover:bg-slate-50 transition-colors">Descartar</button><button type="submit" className="flex-[2] bg-blue-600 text-white py-3 rounded-sm font-bold uppercase text-[10px] shadow hover:bg-blue-700 transition-colors">Finalizar Registro</button></div>
       </form>
     </div>
   );
 }
-
 function EmployeeDetailView({ employee, events, onUpdateEmployee, onDeleteEmployee, onBack }: any) {
   const [activeTab, setActiveTab] = useState<'info' | 'history' | 'relatives'>('info');
-
   return (
     <div className="space-y-6 animate-in slide-in-from-right-2 text-slate-800">
       <header className="flex justify-between items-center">
         <div className="flex items-center gap-3"><button onClick={onBack} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors"><ArrowLeft size={18}/></button><div><h2 className="text-lg font-bold uppercase">{safeStr(employee.name)}</h2><p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Dossiê {safeStr(employee.codigo)} | <StatusBadge status={employee.status} /></p></div></div>
         <div className="flex gap-2"><button onClick={() => onUpdateEmployee(employee.id, {})} className="px-4 py-2 bg-slate-900 text-white rounded-sm font-bold text-[9px] uppercase hover:bg-slate-800 transition-colors">Editar</button><button onClick={() => onDeleteEmployee(employee.id)} className="px-4 py-2 bg-red-100 text-red-600 rounded-sm font-bold text-[9px] uppercase hover:bg-red-200 transition-colors">Remover</button></div>
       </header>
-
       <div className="bg-white rounded-sm border border-slate-200 overflow-hidden flex min-h-[500px]">
         <nav className="w-56 bg-slate-50 border-r border-slate-100 p-2 space-y-1">
           <TabButton active={activeTab === 'info'} onClick={() => setActiveTab('info')} label="Ficha Cadastral" icon={<FileText size={16}/>} />
@@ -495,15 +490,8 @@ function EmployeeDetailView({ employee, events, onUpdateEmployee, onDeleteEmploy
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
               <InfoSection title="Identificação" items={[{label: "Pai", value: safeStr(employee.fatherName)}, {label: "Mãe", value: safeStr(employee.motherName)}, {label: "Nascimento", value: safeStr(employee.birthDate)}, {label: "Est. Civil", value: safeStr(employee.maritalStatus)}]} />
               <InfoSection title="Documentos" items={[{label: "CPF", value: safeStr(employee.cpf)}, {label: "RG", value: `${safeStr(employee.rg)} / ${safeStr(employee.rgOrgao)}`}, {label: "PIS", value: safeStr(employee.pis)}, {label: "CTPS", value: safeStr(employee.ctps)}]} />
-              <InfoSection title="Financeiro" items={[
-                {label: "Banco", value: safeStr(employee.bankInfo?.bank)}, 
-                {label: "Agência / Conta", value: `${safeStr(employee.bankInfo?.agency)} / ${safeStr(employee.bankInfo?.account)}-${safeStr(employee.bankInfo?.digit)}`},
-                {label: "Chave PIX", value: safeStr(employee.pixKey)}
-              ]} />
+              <InfoSection title="Financeiro" items={[{label: "Banco", value: safeStr(employee.bankInfo?.bank)}, {label: "Agência / Conta", value: `${safeStr(employee.bankInfo?.agency)} / ${safeStr(employee.bankInfo?.account)}-${safeStr(employee.bankInfo?.digit)}`}, {label: "Chave PIX", value: safeStr(employee.pixKey)}]} />
               <InfoSection title="Vínculo" items={[{label: "Cargo", value: safeStr(employee.role)}, {label: "Admissão", value: safeStr(employee.admissionDate)}, {label: "Salário", value: formatBRL(employee.salary)}, {label: "Escala", value: safeStr(employee.scale)}]} />
-              <div className="md:col-span-2">
-                <InfoSection title="Localização" items={[{label: "Endereço", value: `${safeStr(employee.address)}, ${safeStr(employee.neighborhood)}`}, {label: "Cidade", value: `${safeStr(employee.city)}/${safeStr(employee.state)} - CEP: ${safeStr(employee.zipCode)}`}]} />
-              </div>
             </div>
           )}
           {activeTab === 'relatives' && (
@@ -511,13 +499,7 @@ function EmployeeDetailView({ employee, events, onUpdateEmployee, onDeleteEmploy
               <h4 className="text-[10px] font-bold uppercase text-blue-600 mb-4">Dependentes e Parentes</h4>
               <div className="divide-y divide-slate-100">
                 {(employee.relatives || []).map((rel: any, idx: number) => (
-                  <div key={idx} className="py-3 flex justify-between items-center">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase">{rel.name}</p>
-                      <p className="text-[9px] text-slate-400 uppercase font-bold">{rel.parentage}</p>
-                    </div>
-                    <span className="text-[11px] font-bold">{rel.birthDate}</span>
-                  </div>
+                  <div key={idx} className="py-3 flex justify-between items-center"><div><p className="text-[11px] font-bold uppercase">{rel.name}</p><p className="text-[9px] text-slate-400 uppercase font-bold">{rel.parentage}</p></div><span className="text-[11px] font-bold">{rel.birthDate}</span></div>
                 ))}
                 {(!employee.relatives || employee.relatives.length === 0) && <p className="text-center py-10 text-[9px] font-bold text-slate-300 uppercase">Sem familiares registrados</p>}
               </div>
@@ -539,20 +521,5 @@ function EmployeeDetailView({ employee, events, onUpdateEmployee, onDeleteEmploy
     </div>
   );
 }
-
-function SidebarLink({ active, onClick, icon, label }: any) {
-  return <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-sm font-bold text-[10px] uppercase tracking-widest transition-all ${active ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>{icon}<span>{label}</span></button>;
-}
-function StatCard({ label, value, icon }: any) {
-  return <div className="p-4 bg-white border border-slate-200 rounded-sm shadow-sm hover:shadow-md transition-shadow"><div className="flex items-center justify-between mb-1"><span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{label}</span>{icon}</div><p className="text-lg font-bold">{safeStr(value)}</p></div>;
-}
-function TabButton({ active, onClick, label, icon }: any) {
-  return <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-2 rounded-sm font-bold text-[9px] uppercase tracking-widest transition-all ${active ? 'bg-white text-blue-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-900'}`}>{icon}<span>{label}</span></button>;
-}
-function InfoSection({ title, items }: any) {
-  return <div><h4 className="text-[9px] font-bold text-blue-600 uppercase mb-4 border-l-2 border-blue-600 pl-2">{title}</h4><div className="space-y-4">{items.map((i: any, idx: number) => <div key={idx}><p className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">{i.label}</p><p className="text-[11px] font-bold">{i.value || '---'}</p></div>)}</div></div>;
-}
-function StatusBadge({ status }: any) {
-  const styles: any = { Ativo: 'text-emerald-600', Afastado: 'text-orange-600', Desligado: 'text-red-600' };
-  return <span className={`font-black uppercase tracking-widest ${styles[status]}`}>• {safeStr(status)}</span>;
-}
+function TabButton({ active, onClick, label, icon }: any) { return <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-2 rounded-sm font-bold text-[9px] uppercase tracking-widest transition-all ${active ? 'bg-white text-blue-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-900'}`}>{icon}<span>{label}</span></button>; }
+function InfoSection({ title, items }: any) { return <div><h4 className="text-[9px] font-bold text-blue-600 uppercase mb-4 border-l-2 border-blue-600 pl-2">{title}</h4><div className="space-y-4">{items.map((i: any, idx: number) => <div key={idx}><p className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">{i.label}</p><p className="text-[11px] font-bold">{i.value || '---'}</p></div>)}</div></div>; }

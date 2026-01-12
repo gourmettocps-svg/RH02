@@ -11,10 +11,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 export const checkDbConnection = async (): Promise<boolean> => {
   try {
     const { error } = await supabase.from('employees').select('id').limit(1);
-    if (error) {
-      console.warn('DB Connection Warning:', error.message);
-      return false;
-    }
+    if (error) return false;
     return true;
   } catch (e) {
     return false;
@@ -34,14 +31,32 @@ export const loginUser = async (email: string, password: string): Promise<AppUse
   return data;
 };
 
-// Função auxiliar para remover campos nulos ou indefinidos antes de enviar ao banco
+// Função de limpeza agressiva para evitar erros de colunas não mapeadas no cache
 const cleanPayload = (obj: any) => {
-  const newObj = { ...obj };
-  Object.keys(newObj).forEach(key => {
-    if (newObj[key] === undefined || newObj[key] === null || newObj[key] === '') {
-      delete newObj[key];
+  const newObj: any = {};
+  
+  Object.keys(obj).forEach(key => {
+    const value = obj[key];
+    
+    // Se o valor for vazio/nulo/undefined, não enviamos a chave
+    if (value === undefined || value === null || value === '') return;
+    
+    // Tratamento para objetos aninhados (bankInfo)
+    if (key === 'bankInfo') {
+      const hasContent = Object.values(value).some(v => v !== '');
+      if (hasContent) newObj[key] = value;
+      return;
     }
+    
+    // Tratamento para arrays (relatives)
+    if (key === 'relatives') {
+      if (Array.isArray(value) && value.length > 0) newObj[key] = value;
+      return;
+    }
+
+    newObj[key] = value;
   });
+  
   return newObj;
 };
 
@@ -52,10 +67,7 @@ export const fetchEmployees = async (): Promise<Employee[]> => {
     .select('*')
     .order('name', { ascending: true });
   
-  if (error) {
-    console.error('Error fetching employees:', error);
-    throw error;
-  }
+  if (error) throw error;
   return data || [];
 };
 
@@ -69,11 +81,7 @@ export const createEmployee = async (employee: Employee): Promise<Employee> => {
     .select()
     .single();
   
-  if (error) {
-    // Se ainda der erro de cache, logamos para debug
-    console.error('Supabase Insert Error:', error);
-    throw error;
-  }
+  if (error) throw error;
   return data;
 };
 
@@ -91,34 +99,19 @@ export const updateEmployee = async (id: string, updates: Partial<Employee>): Pr
 };
 
 export const deleteEmployeeById = async (id: string) => {
-  const { error } = await supabase
-    .from('employees')
-    .delete()
-    .eq('id', id);
-  
+  const { error } = await supabase.from('employees').delete().eq('id', id);
   if (error) throw error;
 };
 
-// Events CRUD
 export const fetchEvents = async (): Promise<OperationalEvent[]> => {
-  const { data, error } = await supabase
-    .from('events')
-    .select('*')
-    .order('date', { ascending: false });
-  
-  if (error) return [];
+  const { data, error } = await supabase.from('events').select('*').order('date', { ascending: false });
   return data || [];
 };
 
 export const createEvent = async (event: OperationalEvent): Promise<OperationalEvent> => {
   const { id, ...rest } = event;
   const payload = cleanPayload(rest);
-  const { data, error } = await supabase
-    .from('events')
-    .insert([payload])
-    .select()
-    .single();
-  
+  const { data, error } = await supabase.from('events').insert([payload]).select().single();
   if (error) throw error;
   return data;
 };
